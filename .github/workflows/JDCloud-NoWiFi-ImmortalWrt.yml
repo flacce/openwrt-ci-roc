@@ -111,6 +111,8 @@ jobs:
         cd $OPENWRT_PATH
         make defconfig
         make download -j$(nproc)
+        PACKAGES=$(grep -E '^CONFIG_PACKAGE_(luci-app-|luci-theme-|mosdns|sing-box|lucky)' .config | grep '=y' | grep -v 'luci-i18n' | sed -e 's/CONFIG_PACKAGE_//g' -e 's/=y//g' | xargs | awk '{print $0}' | sed 's/ /, /g' || true)
+        echo "PACKAGES=$PACKAGES" >> $GITHUB_ENV
 
     - name: Compile Firmware(开始编译固件)
       id: compile
@@ -167,7 +169,8 @@ jobs:
         body: |
           **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}**
           ### 📒 固件信息
-          - 这是开启全功能NSS的6.12内核固件，默认主题为Aurora；该固件在ImmortalWrt的基础上，添加了额外的软件包cpufreq、ddns、ttyd、upnp、wolplus、samba4、vlmcsd、aria2、autoreboot、uhttpd、wifischedule、frps、frpc、diskman、hd-idle、banip、acme、arpbind、usb-printer、passwall、openlist、oaf、sqm、wireguard、watchcat、wechatpush、3cat、smartdns（**Taiyi**额外增加了dockerman、gecoosac、lucky），并添加了若干工具，具体详见JDCloud.config(NoWiFi.config)和General.config。
+          - 🔌 已安装的插件及主题：
+          - **${{ env.PACKAGES }}**
           - 💻 这是 ${{ env.FIRMWARE_TAG }} 平台使用的 OpenWrt 固件
           - ⚽ 固件源码: ${{ env.REPO_URL }}
           - 💝 源码分支: ${{ env.REPO_BRANCH }}
