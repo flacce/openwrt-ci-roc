@@ -3,8 +3,8 @@ name: JDCloud-ImmortalWrt
 on:
   workflow_dispatch:
   workflow_call:
-  # schedule:
-  #   - cron: 0 20 * * *
+  schedule:
+    - cron: '0 20 * * *'
 
 env:
   REPO_URL: https://github.com/laipeng668/immortalwrt.git
