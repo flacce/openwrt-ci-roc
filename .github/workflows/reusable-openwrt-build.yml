@@ -46,6 +46,10 @@ on:
 jobs:
   Build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_profile }}
+      cancel-in-progress: true
     env:
       REPO_URL: ${{ inputs.repo_url }}
       REPO_BRANCH: ${{ inputs.repo_branch }}
@@ -75,8 +79,25 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo -E apt-get -y update
-        sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
+        retry() {
+          local n=1
+          local max=3
+          local delay=20
+          while true; do
+            "$@" && break || {
+              if [ $n -lt $max ]; then
+                n=$((n+1))
+                echo "Command failed. Retry $n/$max in ${delay}s..."
+                sleep $delay
+              else
+                echo "Command failed after $max attempts."
+                return 1
+              fi
+            }
+          done
+        }
+        retry sudo -E apt-get -y update
+        retry sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
         sudo -E systemctl daemon-reload
         sudo timedatectl set-timezone "$TZ"
 
@@ -85,10 +106,27 @@ jobs:
 
     - name: Clone Source Code(克隆源代码)
       run: |
+        retry() {
+          local n=1
+          local max=3
+          local delay=20
+          while true; do
+            "$@" && break || {
+              if [ $n -lt $max ]; then
+                n=$((n+1))
+                echo "Command failed. Retry $n/$max in ${delay}s..."
+                sleep $delay
+              else
+                echo "Command failed after $max attempts."
+                return 1
+              fi
+            }
+          done
+        }
         df -hT $GITHUB_WORKSPACE
         sudo mkdir -p /mnt/openwrt
         sudo chown -R $(id -u):$(id -g) /mnt/openwrt
-        git clone --depth 1 -b $REPO_BRANCH --single-branch $REPO_URL /mnt/openwrt
+        retry git clone --depth 1 -b $REPO_BRANCH --single-branch $REPO_URL /mnt/openwrt
         cd /mnt/openwrt
         echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
         VERSION_INFO=$(git show -s --date=short --format="作者: %an<br/>时间: %cd<br/>内容: %s<br/>hash: %H")
@@ -109,13 +147,32 @@ jobs:
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
         echo "HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
 
+    - name: Cache DL Packages(缓存下载依赖)
+      uses: actions/cache@v4
+      with:
+        key: dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.diy_script) }}
+        restore-keys: |
+          dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ inputs.target_profile }}-
+          dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-
+        path: ${{ env.OPENWRT_PATH }}/dl
+
+    - name: Cache Compiler Output(缓存编译产物)
+      uses: actions/cache@v4
+      with:
+        key: ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}
+        restore-keys: |
+          ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-
+          ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
+        path: ${{ env.OPENWRT_PATH }}/.ccache
+
     - name: Cache Toolchain(缓存工具链)
       uses: actions/cache@v4
       with:
-        key: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.HASH }}
-        restore-keys: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
+        key: staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ env.HASH }}
+        restore-keys: |
+          staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-
+          staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
         path: |
-          ${{ env.OPENWRT_PATH }}/.ccache
           ${{ env.OPENWRT_PATH }}/staging_dir
 
     - name: Refresh The Cache(刷新缓存)
@@ -128,9 +185,26 @@ jobs:
 
     - name: Install Feeds(安装feeds)
       run: |
+        retry() {
+          local n=1
+          local max=3
+          local delay=20
+          while true; do
+            "$@" && break || {
+              if [ $n -lt $max ]; then
+                n=$((n+1))
+                echo "Command failed. Retry $n/$max in ${delay}s..."
+                sleep $delay
+              else
+                echo "Command failed after $max attempts."
+                return 1
+              fi
+            }
+          done
+        }
         cd $OPENWRT_PATH
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+        retry ./scripts/feeds update -a
+        retry ./scripts/feeds install -a
 
     - name: Load Custom Configuration(加载自定义配置)
       run: |
@@ -140,10 +214,27 @@ jobs:
 
     - name: Download DL Package(下载DL软件包)
       run: |
+        retry() {
+          local n=1
+          local max=3
+          local delay=20
+          while true; do
+            "$@" && break || {
+              if [ $n -lt $max ]; then
+                n=$((n+1))
+                echo "Command failed. Retry $n/$max in ${delay}s..."
+                sleep $delay
+              else
+                echo "Command failed after $max attempts."
+                return 1
+              fi
+            }
+          done
+        }
         cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
         make defconfig
-        make download -j$(nproc)
+        retry make download -j$(nproc)
         PACKAGES=$(grep -E '^CONFIG_PACKAGE_(luci-app-|luci-theme-|mosdns|sing-box|lucky)' .config | grep '=y' | grep -v 'luci-i18n' | sed -e 's/CONFIG_PACKAGE_//g' -e 's/=y//g' | xargs | awk '{print $0}' | sed 's/ /, /g' || true)
         echo "PACKAGES=$PACKAGES" >> $GITHUB_ENV
 
@@ -156,6 +247,24 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
         echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
         echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
+
+    - name: Save Build Logs On Failure(失败时保存日志)
+      if: failure()
+      run: |
+        mkdir -p $GITHUB_WORKSPACE/debug-logs
+        if [ -n "${OPENWRT_PATH:-}" ] && [ -d "$OPENWRT_PATH" ]; then
+          cp -f $OPENWRT_PATH/.config $GITHUB_WORKSPACE/debug-logs/ 2>/dev/null || true
+          cp -f $OPENWRT_PATH/.config.old $GITHUB_WORKSPACE/debug-logs/ 2>/dev/null || true
+          find $OPENWRT_PATH -maxdepth 5 -type f -name '*.log' -exec cp -f {} $GITHUB_WORKSPACE/debug-logs/ \; 2>/dev/null || true
+        fi
+
+    - name: Upload Failure Logs Artifact(上传失败日志)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.FIRMWARE_TAG }}-failure-logs-${{ github.run_number }}
+        path: ${{ github.workspace }}/debug-logs
+        if-no-files-found: warn
 
     - name: Check Space Usage(检查空间使用情况)
       if: (!cancelled())
