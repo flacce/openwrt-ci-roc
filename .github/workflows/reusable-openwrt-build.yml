@@ -61,20 +61,6 @@ jobs:
       TZ: ${{ inputs.tz }}
 
     steps:
-    - name: Check Server Performance(检查服务器性能)
-      run: |
-        echo "警告⚠"
-        echo "分配的服务器性能有限，若选择的插件过多，务必注意CPU性能！"
-        echo -e "已知CPU型号（降序）：7763，8370C，8272CL，8171M，E5-2673 \n"
-        echo "--------------------------CPU信息--------------------------"
-        echo "CPU物理数量：$(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
-        echo -e "CPU核心信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) \n"
-        echo "--------------------------内存信息--------------------------"
-        echo "已安装内存详细信息："
-        echo -e "$(sudo lshw -short -C memory | grep GiB) \n"
-        echo "--------------------------硬盘信息--------------------------"
-        echo "硬盘数量：$(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
-
     - name: Initialization Environment(初始化环境)
       env:
         DEBIAN_FRONTEND: noninteractive
@@ -98,7 +84,6 @@ jobs:
         }
         retry sudo -E apt-get -y update
         retry sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
-        sudo -E systemctl daemon-reload
         sudo timedatectl set-timezone "$TZ"
 
     - name: Checkout(检出代码)
@@ -131,21 +116,25 @@ jobs:
         echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
         VERSION_INFO=$(git show -s --date=short --format="作者: %an<br/>时间: %cd<br/>内容: %s<br/>hash: %H")
         echo "VERSION_INFO=$VERSION_INFO" >> $GITHUB_ENV
-        VERSION_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' target/linux/generic/kernel-6.12)
+        KERNEL_FILE=$(find target/linux/generic -maxdepth 1 -type f -name 'kernel-*' | sort -V | tail -n1)
+        VERSION_KERNEL=""
+        if [ -n "${KERNEL_FILE:-}" ]; then
+          VERSION_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' "$KERNEL_FILE" | head -n1 || true)
+        fi
+        if [ -z "$VERSION_KERNEL" ] && [ -f include/kernel-version.mk ]; then
+          VERSION_KERNEL=$(grep -oP 'KERNEL_PATCHVER:=\K[0-9]+\.[0-9]+' include/kernel-version.mk | head -n1 || true)
+        fi
+        VERSION_KERNEL=${VERSION_KERNEL:-unknown}
         echo "VERSION_KERNEL=$VERSION_KERNEL" >> $GITHUB_ENV
 
     - name: Generate Variables(生成变量)
       run: |
-        cp $CONFIG_FILE $OPENWRT_PATH/.config
-        cd $OPENWRT_PATH
-        make defconfig > /dev/null 2>&1
-        SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')"
+        SOURCE_REPO="$(basename "$REPO_URL" .git)"
         echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
-        DEVICE_TARGET=$(cat .config | grep CONFIG_TARGET_BOARD | awk -F '"' '{print $2}')
+        DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD=' "$CONFIG_FILE" | awk -F '"' '{print $2}')
         echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
-        DEVICE_SUBTARGET=$(cat .config | grep CONFIG_TARGET_SUBTARGET | awk -F '"' '{print $2}')
+        DEVICE_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' "$CONFIG_FILE" | awk -F '"' '{print $2}')
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
-        echo "HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
 
     - name: Cache DL Packages(缓存下载依赖)
       uses: actions/cache@v4
@@ -168,9 +157,10 @@ jobs:
     - name: Cache Toolchain(缓存工具链)
       uses: actions/cache@v4
       with:
-        key: staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ env.HASH }}
+        key: staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.diy_script) }}
         restore-keys: |
-          staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-
+          staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-
+          staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
           staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
         path: |
           ${{ env.OPENWRT_PATH }}/staging_dir
@@ -280,18 +270,24 @@ jobs:
     - name: Organize Files(整理文件)
       if: steps.compile.outputs.status == 'success'
       run: |
+        shopt -s nullglob
         cd $OPENWRT_PATH/bin/targets/*/*
+        manifest_file=""
+        manifest_files=( *.manifest )
+        if [ ${#manifest_files[@]} -gt 0 ]; then
+          manifest_file="${manifest_files[0]}"
+        fi
         case "${{ inputs.target_profile }}" in
           jdcloud)
             cp $OPENWRT_PATH/.config Arthur.Athena.config
             mv config.buildinfo Arthur.Athena.config.buildinfo
-            mv immortalwrt-qualcommax-ipq60xx.manifest Arthur.Athena.manifest
+            [ -n "$manifest_file" ] && mv "$manifest_file" Arthur.Athena.manifest
             tar_name="Arthur.Athena.Packages.tar.gz"
             ;;
           jdcloud_nowifi)
             cp $OPENWRT_PATH/.config Arthur.Athena.Taiyi.NoWiFi.config
             mv config.buildinfo Arthur.Athena.Taiyi.NoWiFi.config.buildinfo
-            mv immortalwrt-qualcommax-ipq60xx.manifest Arthur.Athena.Taiyi.NoWiFi.manifest
+            [ -n "$manifest_file" ] && mv "$manifest_file" Arthur.Athena.Taiyi.NoWiFi.manifest
             tar_name="Arthur.Athena.Taiyi.NoWiFi.Packages.tar.gz"
             for file in *qualcommax*.bin; do
               mv "$file" "${file//qualcommax/nowifi}"
@@ -300,7 +296,7 @@ jobs:
           ipq60xx)
             cp $OPENWRT_PATH/.config IPQ60XX.config
             mv config.buildinfo IPQ60XX.config.buildinfo
-            mv libwrt-qualcommax-ipq60xx.manifest IPQ60XX.manifest
+            [ -n "$manifest_file" ] && mv "$manifest_file" IPQ60XX.manifest
             tar_name="IPQ60XX.Packages.tar.gz"
             ;;
           *)
@@ -308,9 +304,16 @@ jobs:
             exit 1
             ;;
         esac
-        mv -f $OPENWRT_PATH/bin/packages/*/*/*.apk packages
-        tar -zcf "$tar_name" packages
-        rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
+        apk_files=( $OPENWRT_PATH/bin/packages/*/*/*.apk )
+        if [ ${#apk_files[@]} -gt 0 ]; then
+          mkdir -p packages
+          mv -f "${apk_files[@]}" packages/
+          tar -zcf "$tar_name" packages
+        else
+          echo "No APK packages found, skipping package archive."
+        fi
+        rm -rf packages
+        rm -f feeds.buildinfo version.buildinfo sha256sums profiles.json
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
 
     - name: Upload Firmware To Artifact(将固件上传到Artifact)
@@ -321,7 +324,33 @@ jobs:
         path: ${{ env.FIRMWARE_PATH }}
 
     - name: Upload Firmware To Release(发布固件)
+      id: release_upload
       if: steps.compile.outputs.status == 'success' && inputs.firmware_release
+      continue-on-error: true
+      uses: ncipollo/release-action@v1
+      with:
+        name: ${{ env.DATE }} for ${{ env.FIRMWARE_TAG }}
+        allowUpdates: true
+        tag: ${{ env.FIRMWARE_TAG }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        artifacts: ${{ env.FIRMWARE_PATH }}/*
+        body: |
+          **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}**
+          ### 📒 固件信息
+          - 🔌 已安装的插件及主题：
+          - **${{ env.PACKAGES }}**
+          - 💻 这是 ${{ env.FIRMWARE_TAG }} 平台使用的 OpenWrt 固件
+          - ⚽ 固件源码: ${{ env.REPO_URL }}
+          - 💝 源码分支: ${{ env.REPO_BRANCH }}
+          - 🌐 默认地址: **10.0.0.1**
+          - 🔑 默认密码: none
+          ### 🧊 固件版本
+          - 固件内核版本：**${{ env.VERSION_KERNEL }}**
+          - 固件编译前最后一次➦[主源码](${{ env.REPO_URL }})更新记录
+          - ${{ env.VERSION_INFO }}
+
+    - name: Retry Release Upload On Transient Failure(失败后重试发布)
+      if: steps.compile.outputs.status == 'success' && inputs.firmware_release && steps.release_upload.outcome == 'failure'
       uses: ncipollo/release-action@v1
       with:
         name: ${{ env.DATE }} for ${{ env.FIRMWARE_TAG }}

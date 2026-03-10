@@ -1,6 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+retry() {
+  local attempt=1
+  local max_attempts="${RETRY_MAX_ATTEMPTS:-3}"
+  local delay_seconds="${RETRY_DELAY_SECONDS:-20}"
+
+  while true; do
+    "$@" && return 0
+    if [ "$attempt" -ge "$max_attempts" ]; then
+      echo "Command failed after ${max_attempts} attempts: $*" >&2
+      return 1
+    fi
+    attempt=$((attempt + 1))
+    echo "Command failed. Retry ${attempt}/${max_attempts} in ${delay_seconds}s: $*" >&2
+    sleep "$delay_seconds"
+  done
+}
+
+clone_into() {
+  local repo_url="$1"
+  local destination="$2"
+  local ref="${3:-}"
+  rm -rf "$destination"
+  if [ -n "$ref" ]; then
+    retry git clone --depth=1 --single-branch --branch "$ref" "$repo_url" "$destination"
+  else
+    retry git clone --depth=1 "$repo_url" "$destination"
+  fi
+}
+
 # 修改默认IP & 固件名称 & 编译署名和时间 & 默认主题
 sed -i 's/192.168.1.1/10.0.0.1/g' package/base-files/files/bin/config_generate
 sed -i "s/hostname='.*'/hostname='Roc'/g" package/base-files/files/bin/config_generate
@@ -41,21 +70,24 @@ rm -rf \
 # Git稀疏克隆，只克隆指定目录到本地
 function git_sparse_clone() {
   local branch="$1"
-  local repourl="$2"
+  local repo_url="$2"
   shift 2
-  git clone --depth=1 -b "$branch" --single-branch --filter=blob:none --sparse "$repourl"
-  local repodir=$(basename "$repourl" .git)
-  cd "$repodir" || return
-  git sparse-checkout set "$@"
+  local repo_dir
+  repo_dir="$(basename "$repo_url" .git)"
+  rm -rf "$repo_dir"
+  retry git clone --depth=1 -b "$branch" --single-branch --filter=blob:none --sparse "$repo_url" "$repo_dir"
+  pushd "$repo_dir" >/dev/null || return 1
+  retry git sparse-checkout set "$@"
   mv -f "$@" ../package/
-  cd .. && rm -rf "$repodir"
+  popd >/dev/null || return 1
+  rm -rf "$repo_dir"
 }
 
 # ariang & Go & frp & WolPlus & Aurora & Lucky & wechatpush & OpenAppFilter & 集客无线AC控制器 & 雅典娜LED控制
-git clone --depth=1 https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
-git clone --depth=1 https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
-git clone --depth=1 https://github.com/VIKINGYFY/homeproxy package/homeproxy
-git clone --depth=1 https://github.com/EasyTier/luci-app-easytier package/luci-app-easytier
+clone_into https://github.com/sbwml/luci-app-mosdns package/mosdns v5
+clone_into https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
+clone_into https://github.com/VIKINGYFY/homeproxy package/homeproxy
+clone_into https://github.com/EasyTier/luci-app-easytier package/luci-app-easytier
 
 git_sparse_clone ariang https://github.com/laipeng668/packages net/ariang
 
@@ -71,26 +103,26 @@ mv -f package/luci-app-frps feeds/luci/applications/luci-app-frps
 
 git_sparse_clone main https://github.com/VIKINGYFY/packages luci-app-wolplus
 
-git clone --depth=1 https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora
-git clone --depth=1 https://github.com/eamonxg/luci-app-aurora-config package/luci-app-aurora-config
-git clone --depth=1 https://github.com/gdy666/luci-app-lucky package/luci-app-lucky
-git clone --depth=1 https://github.com/tty228/luci-app-wechatpush package/luci-app-wechatpush
-git clone --depth=1 https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
-git clone --depth=1 https://github.com/laipeng668/luci-app-gecoosac package/luci-app-gecoosac
-git clone --depth=1 https://github.com/NONGFAH/luci-app-athena-led package/luci-app-athena-led
+clone_into https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora
+clone_into https://github.com/eamonxg/luci-app-aurora-config package/luci-app-aurora-config
+clone_into https://github.com/gdy666/luci-app-lucky package/luci-app-lucky
+clone_into https://github.com/tty228/luci-app-wechatpush package/luci-app-wechatpush
+clone_into https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
+clone_into https://github.com/laipeng668/luci-app-gecoosac package/luci-app-gecoosac
+clone_into https://github.com/NONGFAH/luci-app-athena-led package/luci-app-athena-led
 chmod +x package/luci-app-athena-led/root/etc/init.d/athena_led package/luci-app-athena-led/root/usr/sbin/athena-led
 
 ### PassWall & OpenClash ###
 
 # 移除 OpenWrt Feeds 自带的核心库
 rm -rf feeds/packages/net/{xray-core,v2ray-geodata,sing-box,chinadns-ng,dns2socks,hysteria,ipt2socks,microsocks,naiveproxy,shadowsocks-libev,shadowsocks-rust,shadowsocksr-libev,simple-obfs,tcping,trojan-plus,tuic-client,v2ray-plugin,xray-plugin,geoview,shadow-tls}
-git clone --depth=1 https://github.com/Openwrt-Passwall/openwrt-passwall-packages package/passwall-packages
+clone_into https://github.com/Openwrt-Passwall/openwrt-passwall-packages package/passwall-packages
 
 # 移除 OpenWrt Feeds 过时的LuCI版本
 rm -rf feeds/luci/applications/luci-app-{passwall,openclash}
-git clone --depth=1 https://github.com/Openwrt-Passwall/openwrt-passwall package/luci-app-passwall
-git clone --depth=1 https://github.com/Openwrt-Passwall/openwrt-passwall2 package/luci-app-passwall2
-git clone --depth=1 https://github.com/vernesong/OpenClash package/luci-app-openclash
+clone_into https://github.com/Openwrt-Passwall/openwrt-passwall package/luci-app-passwall
+clone_into https://github.com/Openwrt-Passwall/openwrt-passwall2 package/luci-app-passwall2
+clone_into https://github.com/vernesong/OpenClash package/luci-app-openclash
 
 # 清理 PassWall 的 chnlist 规则文件
 echo "baidu.com"  > package/luci-app-passwall/luci-app-passwall/root/usr/share/passwall/rules/chnlist
