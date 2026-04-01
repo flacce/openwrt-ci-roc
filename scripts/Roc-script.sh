@@ -83,7 +83,7 @@ function git_sparse_clone() {
   rm -rf "$repo_dir"
 }
 
-# ariang & Go & frp & WolPlus & Aurora & Lucky & wechatpush & OpenAppFilter & 集客无线AC控制器 & 雅典娜LED控制
+# ariang & Go & frp & Aurora & Lucky & wechatpush & OpenAppFilter & 集客无线AC控制器 & 雅典娜LED控制
 clone_into https://github.com/sbwml/luci-app-mosdns package/mosdns v5
 clone_into https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 clone_into https://github.com/VIKINGYFY/homeproxy package/homeproxy
@@ -100,8 +100,6 @@ mv -f package/frp feeds/packages/net/frp
 git_sparse_clone frp https://github.com/laipeng668/luci applications/luci-app-frpc applications/luci-app-frps
 mv -f package/luci-app-frpc feeds/luci/applications/luci-app-frpc
 mv -f package/luci-app-frps feeds/luci/applications/luci-app-frps
-
-git_sparse_clone main https://github.com/VIKINGYFY/packages luci-app-wolplus
 
 clone_into https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora
 clone_into https://github.com/eamonxg/luci-app-aurora-config package/luci-app-aurora-config
