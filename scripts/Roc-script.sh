@@ -86,7 +86,7 @@ function git_sparse_clone() {
 # ariang & Go & frp & Aurora & Lucky & wechatpush & OpenAppFilter & 集客无线AC控制器 & 雅典娜LED控制
 clone_into https://github.com/sbwml/luci-app-mosdns package/mosdns v5
 clone_into https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
-clone_into https://github.com/VIKINGYFY/homeproxy package/homeproxy
+clone_into hhttps://github.com/immortalwrt/homeproxy package/homeproxy
 clone_into https://github.com/EasyTier/luci-app-easytier package/luci-app-easytier
 
 git_sparse_clone ariang https://github.com/laipeng668/packages net/ariang
