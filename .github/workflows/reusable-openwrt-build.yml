@@ -59,7 +59,6 @@ jobs:
       FIRMWARE_RELEASE: ${{ inputs.firmware_release }}
       FIRMWARE_TAG: ${{ inputs.firmware_tag }}
       TZ: ${{ inputs.tz }}
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
     - name: Initialization Environment(初始化环境)
@@ -88,7 +87,7 @@ jobs:
         sudo timedatectl set-timezone "$TZ"
 
     - name: Checkout(检出代码)
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Clone Source Code(克隆源代码)
       run: |
@@ -138,7 +137,7 @@ jobs:
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
 
     - name: Cache DL Packages(缓存下载依赖)
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         key: dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.diy_script) }}
         restore-keys: |
@@ -147,7 +146,7 @@ jobs:
         path: ${{ env.OPENWRT_PATH }}/dl
 
     - name: Cache Compiler Output(缓存编译产物)
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         key: ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}
         restore-keys: |
@@ -156,7 +155,7 @@ jobs:
         path: ${{ env.OPENWRT_PATH }}/.ccache
 
     - name: Cache Toolchain(缓存工具链)
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         key: staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.diy_script) }}
         restore-keys: |
@@ -251,7 +250,7 @@ jobs:
 
     - name: Upload Failure Logs Artifact(上传失败日志)
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ env.FIRMWARE_TAG }}-failure-logs-${{ github.run_number }}
         path: ${{ github.workspace }}/debug-logs
@@ -263,7 +262,7 @@ jobs:
 
     - name: Upload Bin Directory(上传固件)
       if: steps.compile.outputs.status == 'success' && inputs.upload_bin_dir
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ env.SOURCE_REPO }}-bin-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
         path: ${{ env.OPENWRT_PATH }}/bin
@@ -319,7 +318,7 @@ jobs:
 
     - name: Upload Firmware To Artifact(将固件上传到Artifact)
       if: steps.compile.outputs.status == 'success' && !inputs.firmware_release
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ env.SOURCE_REPO }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE_PATH }}
