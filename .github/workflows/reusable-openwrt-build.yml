@@ -16,6 +16,10 @@ on:
         required: false
         type: string
         default: configs/General.config
+      base_config_file:
+        required: false
+        type: string
+        default: ""
       diy_script:
         required: false
         type: string
@@ -55,6 +59,7 @@ jobs:
       REPO_BRANCH: ${{ inputs.repo_branch }}
       CONFIG_FILE: ${{ inputs.config_file }}
       GENERAL_CONFIG_FILE: ${{ inputs.general_config_file }}
+      BASE_CONFIG_FILE: ${{ inputs.base_config_file }}
       DIY_SCRIPT: ${{ inputs.diy_script }}
       FIRMWARE_RELEASE: ${{ inputs.firmware_release }}
       FIRMWARE_TAG: ${{ inputs.firmware_tag }}
@@ -131,15 +136,16 @@ jobs:
       run: |
         SOURCE_REPO="$(basename "$REPO_URL" .git)"
         echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
-        DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD=' "$CONFIG_FILE" | awk -F '"' '{print $2}')
+        merged_config="$GENERAL_CONFIG_FILE ${BASE_CONFIG_FILE:+$BASE_CONFIG_FILE} $CONFIG_FILE"
+        DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD=' $merged_config | head -1 | awk -F '"' '{print $2}')
         echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
-        DEVICE_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' "$CONFIG_FILE" | awk -F '"' '{print $2}')
+        DEVICE_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' $merged_config | head -1 | awk -F '"' '{print $2}')
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
 
     - name: Cache DL Packages(缓存下载依赖)
       uses: actions/cache@v5
       with:
-        key: dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.diy_script) }}
+        key: dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.base_config_file, inputs.diy_script) }}
         restore-keys: |
           dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ inputs.target_profile }}-
           dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-
@@ -157,7 +163,7 @@ jobs:
     - name: Cache Toolchain(缓存工具链)
       uses: actions/cache@v5
       with:
-        key: staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.diy_script) }}
+        key: staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.base_config_file, inputs.diy_script) }}
         restore-keys: |
           staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-
           staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
@@ -221,7 +227,7 @@ jobs:
             }
           done
         }
-        cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
+        cat $GENERAL_CONFIG_FILE ${BASE_CONFIG_FILE:+$BASE_CONFIG_FILE} $CONFIG_FILE > $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
         make defconfig
         retry make download -j$(nproc)
@@ -232,8 +238,7 @@ jobs:
       id: compile
       run: |
         cd $OPENWRT_PATH
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        make -j$(nproc) V=s
         echo "status=success" >> $GITHUB_OUTPUT
         echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
         echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
@@ -274,45 +279,29 @@ jobs:
         cd $OPENWRT_PATH/bin/targets/*/*
         manifest_file=""
         manifest_files=( *.manifest )
-        if [ ${#manifest_files[@]} -gt 0 ]; then
-          manifest_file="${manifest_files[0]}"
-        fi
+        [ ${#manifest_files[@]} -gt 0 ] && manifest_file="${manifest_files[0]}"
+
+        # 确定固件命名
         case "${{ inputs.target_profile }}" in
-          jdcloud)
-            cp $OPENWRT_PATH/.config Arthur.Athena.config
-            mv config.buildinfo Arthur.Athena.config.buildinfo
-            [ -n "$manifest_file" ] && mv "$manifest_file" Arthur.Athena.manifest
-            tar_name="Arthur.Athena.Packages.tar.gz"
-            ;;
-          jdcloud_nowifi)
-            cp $OPENWRT_PATH/.config Arthur.Athena.Taiyi.NoWiFi.config
-            mv config.buildinfo Arthur.Athena.Taiyi.NoWiFi.config.buildinfo
-            [ -n "$manifest_file" ] && mv "$manifest_file" Arthur.Athena.Taiyi.NoWiFi.manifest
-            tar_name="Arthur.Athena.Taiyi.NoWiFi.Packages.tar.gz"
-            for file in *qualcommax*.bin; do
-              mv "$file" "${file//qualcommax/nowifi}"
-            done
-            ;;
-          ipq60xx)
-            cp $OPENWRT_PATH/.config IPQ60XX.config
-            mv config.buildinfo IPQ60XX.config.buildinfo
-            [ -n "$manifest_file" ] && mv "$manifest_file" IPQ60XX.manifest
-            tar_name="IPQ60XX.Packages.tar.gz"
-            ;;
-          *)
-            echo "Unsupported target_profile: ${{ inputs.target_profile }}"
-            exit 1
-            ;;
+          jdcloud)        firmware_name="Arthur.Athena" ;;
+          jdcloud_nowifi) firmware_name="Arthur.Athena.Taiyi.NoWiFi" ;;
+          ipq60xx)        firmware_name="IPQ60XX" ;;
+          *)              echo "Unsupported target_profile: ${{ inputs.target_profile }}"; exit 1 ;;
         esac
+
+        # 统一重命名
+        cp $OPENWRT_PATH/.config "${firmware_name}.config"
+        mv config.buildinfo "${firmware_name}.config.buildinfo"
+        [ -n "$manifest_file" ] && mv "$manifest_file" "${firmware_name}.manifest"
+        [ "${{ inputs.target_profile }}" = "jdcloud_nowifi" ] && for f in *qualcommax*.bin; do mv "$f" "${f//qualcommax/nowifi}"; done
+
+        # 打包 APK
         apk_files=( $OPENWRT_PATH/bin/packages/*/*/*.apk )
         if [ ${#apk_files[@]} -gt 0 ]; then
-          mkdir -p packages
-          mv -f "${apk_files[@]}" packages/
-          tar -zcf "$tar_name" packages
-        else
-          echo "No APK packages found, skipping package archive."
+          mkdir -p packages && mv -f "${apk_files[@]}" packages/
+          tar -zcf "${firmware_name}.Packages.tar.gz" packages
+          rm -rf packages
         fi
-        rm -rf packages
         rm -f feeds.buildinfo version.buildinfo sha256sums profiles.json
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
 

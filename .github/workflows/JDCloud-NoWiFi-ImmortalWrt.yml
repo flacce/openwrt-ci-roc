@@ -15,6 +15,7 @@ jobs:
       repo_branch: openwrt-25.12
       config_file: configs/JDCloud.NoWiFi.config
       general_config_file: configs/General.config
+      base_config_file: configs/qualcommax-base.config
       diy_script: scripts/Roc-script.sh
       firmware_tag: JDCloud
       firmware_release: true
