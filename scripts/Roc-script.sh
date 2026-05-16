@@ -87,7 +87,7 @@ function git_sparse_clone() {
 clone_into https://github.com/sbwml/luci-app-mosdns package/mosdns v5
 clone_into https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
 #clone_into https://github.com/immortalwrt/homeproxy package/homeproxy
-clone_into https://github.com/lxiaya/openwrt-homeproxy package/homeproxy
+clone_into https://github.com/VIKINGYFY/homeproxy package/homeproxy
 clone_into https://github.com/EasyTier/luci-app-easytier package/luci-app-easytier
 
 git_sparse_clone ariang https://github.com/laipeng668/packages net/ariang
