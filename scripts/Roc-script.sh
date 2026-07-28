@@ -83,29 +83,29 @@ function git_sparse_clone() {
   rm -rf "$repo_dir"
 }
 
-# ariang & Go & frp & Aurora & Lucky & wechatpush & OpenAppFilter & 集客无线AC控制器 & 雅典娜LED控制
-clone_into https://github.com/sbwml/luci-app-mosdns package/mosdns v5
-clone_into https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
-git_sparse_clone master https://github.com/vernesong/OpenClash luci-app-openclash
-clone_into https://github.com/EasyTier/luci-app-easytier package/luci-app-easytier
+# 并行拉取第三方软件包以提升下载效率
+( clone_into https://github.com/sbwml/luci-app-mosdns package/mosdns v5 ) &
+( clone_into https://github.com/sbwml/v2ray-geodata package/v2ray-geodata ) &
+( git_sparse_clone master https://github.com/vernesong/OpenClash luci-app-openclash ) &
+( clone_into https://github.com/EasyTier/luci-app-easytier package/luci-app-easytier ) &
 
-git_sparse_clone ariang https://github.com/laipeng668/packages net/ariang
+( git_sparse_clone ariang https://github.com/laipeng668/packages net/ariang ) &
 
-git_sparse_clone master https://github.com/laipeng668/packages lang/golang
-mv -f package/golang feeds/packages/lang/golang
+( git_sparse_clone master https://github.com/laipeng668/packages lang/golang && mv -f package/golang feeds/packages/lang/golang ) &
 
-git_sparse_clone frp-binary-toml https://github.com/laipeng668/packages net/frp
-mv -f package/frp feeds/packages/net/frp
+( git_sparse_clone frp-binary-toml https://github.com/laipeng668/packages net/frp && mv -f package/frp feeds/packages/net/frp ) &
 
-git_sparse_clone frp https://github.com/laipeng668/luci applications/luci-app-frpc applications/luci-app-frps
-mv -f package/luci-app-frpc feeds/luci/applications/luci-app-frpc
-mv -f package/luci-app-frps feeds/luci/applications/luci-app-frps
+( git_sparse_clone frp https://github.com/laipeng668/luci applications/luci-app-frpc applications/luci-app-frps && mv -f package/luci-app-frpc feeds/luci/applications/luci-app-frpc && mv -f package/luci-app-frps feeds/luci/applications/luci-app-frps ) &
 
-clone_into https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora
-clone_into https://github.com/eamonxg/luci-app-aurora-config package/luci-app-aurora-config
-clone_into https://github.com/gdy666/luci-app-lucky package/luci-app-lucky
-clone_into https://github.com/tty228/luci-app-wechatpush package/luci-app-wechatpush
-clone_into https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter
-clone_into https://github.com/laipeng668/luci-app-gecoosac package/luci-app-gecoosac
-clone_into https://github.com/NONGFAH/luci-app-athena-led package/luci-app-athena-led
-chmod +x package/luci-app-athena-led/root/etc/init.d/athena_led package/luci-app-athena-led/root/usr/sbin/athena-led
+( clone_into https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora ) &
+( clone_into https://github.com/eamonxg/luci-app-aurora-config package/luci-app-aurora-config ) &
+( clone_into https://github.com/gdy666/luci-app-lucky package/luci-app-lucky ) &
+( clone_into https://github.com/tty228/luci-app-wechatpush package/luci-app-wechatpush ) &
+( clone_into https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter ) &
+( clone_into https://github.com/laipeng668/luci-app-gecoosac package/luci-app-gecoosac ) &
+( clone_into https://github.com/NONGFAH/luci-app-athena-led package/luci-app-athena-led ) &
+
+wait
+
+chmod +x package/luci-app-athena-led/root/etc/init.d/athena_led package/luci-app-athena-led/root/usr/sbin/athena-led 2>/dev/null || true
+

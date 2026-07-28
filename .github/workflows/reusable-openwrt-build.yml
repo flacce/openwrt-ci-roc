@@ -88,7 +88,14 @@ jobs:
           done
         }
         retry sudo -E apt-get -y update
-        retry sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
+        retry sudo -E apt-get -y install --no-install-recommends \
+          build-essential clang flex bison gawk gettext git libncurses5-dev \
+          libssl-dev python3-distutils rsync unzip zlib1g-dev file wget \
+          libglib2.0-dev libelf-dev libgnutls28-dev jq \
+          bzip2 ccache ecj fastjar g++-multilib gpack git-core \
+          java-propose-classpath lib32ncurses-dev lib32z1-dev libglib2.0-dev \
+          python3-setuptools python3-pyelftools subversion swig uglifyjs \
+          upx-ucl xmlto zlib1g-dev || retry sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
         sudo timedatectl set-timezone "$TZ"
 
     - name: Checkout(检出代码)
@@ -199,6 +206,8 @@ jobs:
           done
         }
         cd $OPENWRT_PATH
+        git config --global fetch.parallel 0
+        git config --global submodule.fetchJobs 0
         retry ./scripts/feeds update -a
         retry ./scripts/feeds install -a
 
