@@ -54,6 +54,9 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_profile }}
       cancel-in-progress: true
+    permissions:
+      contents: write
+      actions: write
     env:
       REPO_URL: ${{ inputs.repo_url }}
       REPO_BRANCH: ${{ inputs.repo_branch }}
@@ -64,6 +67,7 @@ jobs:
       FIRMWARE_RELEASE: ${{ inputs.firmware_release }}
       FIRMWARE_TAG: ${{ inputs.firmware_tag }}
       TZ: ${{ inputs.tz }}
+      CCACHE_DIR: /mnt/openwrt/.ccache
 
     steps:
     - name: Initialization Environment(初始化环境)
@@ -99,7 +103,7 @@ jobs:
         sudo timedatectl set-timezone "$TZ"
 
     - name: Checkout(检出代码)
-      uses: actions/checkout@v5
+      uses: actions/checkout@v4
 
     - name: Clone Source Code(克隆源代码)
       run: |
@@ -145,12 +149,21 @@ jobs:
         echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
         merged_config="$GENERAL_CONFIG_FILE ${BASE_CONFIG_FILE:+$BASE_CONFIG_FILE} $CONFIG_FILE"
         DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD=' $merged_config | head -1 | awk -F '"' '{print $2}')
+        if [ -z "$DEVICE_TARGET" ]; then
+          DEVICE_TARGET=$(grep -E '^CONFIG_TARGET_[a-zA-Z0-9_-]+=y' $merged_config | grep -v -i 'DEVICE' | grep -v 'MULTI_PROFILE' | grep -v '_' | head -1 | sed -E 's/CONFIG_TARGET_(.*)=y/\1/' || true)
+        fi
+        [ -z "$DEVICE_TARGET" ] && DEVICE_TARGET="qualcommax"
         echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
+
         DEVICE_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' $merged_config | head -1 | awk -F '"' '{print $2}')
+        if [ -z "$DEVICE_SUBTARGET" ]; then
+          DEVICE_SUBTARGET=$(grep -E "^CONFIG_TARGET_${DEVICE_TARGET}_[a-zA-Z0-9_-]+=y" $merged_config | grep -v -i 'DEVICE' | head -1 | sed -E "s/CONFIG_TARGET_${DEVICE_TARGET}_(.*)=y/\1/" || true)
+        fi
+        [ -z "$DEVICE_SUBTARGET" ] && DEVICE_SUBTARGET="ipq60xx"
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
 
     - name: Cache DL Packages(缓存下载依赖)
-      uses: actions/cache@v5
+      uses: actions/cache@v4
       with:
         key: dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.base_config_file, inputs.diy_script) }}
         restore-keys: |
@@ -159,32 +172,20 @@ jobs:
         path: ${{ env.OPENWRT_PATH }}/dl
 
     - name: Cache Compiler Output(缓存编译产物)
-      uses: actions/cache@v5
+      uses: actions/cache@v4
       with:
-        key: ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}
+        key: ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ github.sha }}
         restore-keys: |
           ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-
           ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
-        path: ${{ env.OPENWRT_PATH }}/.ccache
+        path: ${{ env.CCACHE_DIR }}
 
-    - name: Cache Toolchain(缓存工具链)
-      uses: actions/cache@v5
-      with:
-        key: staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.base_config_file, inputs.diy_script) }}
-        restore-keys: |
-          staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-
-          staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
-          staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
-        path: |
-          ${{ env.OPENWRT_PATH }}/staging_dir
-
-    - name: Refresh The Cache(刷新缓存)
+    - name: Configure Ccache(配置编译缓存)
       run: |
-        if [ -d "$OPENWRT_PATH/staging_dir" ]; then
-          find "$OPENWRT_PATH/staging_dir" -type d -name "stamp" -not -path "*target*" | while read -r dir; do
-              find "$dir" -type f -exec touch {} +
-          done
-        fi
+        mkdir -p "$CCACHE_DIR"
+        ccache -M 10G
+        ccache -o hash_dir=false
+        ccache -z
 
     - name: Install Feeds(安装feeds)
       run: |
@@ -252,6 +253,11 @@ jobs:
         echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
         echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
 
+    - name: Print Ccache Stats(打印编译缓存统计)
+      if: (!cancelled())
+      run: |
+        ccache -s || true
+
     - name: Save Build Logs On Failure(失败时保存日志)
       if: failure()
       run: |
@@ -264,7 +270,7 @@ jobs:
 
     - name: Upload Failure Logs Artifact(上传失败日志)
       if: failure()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ env.FIRMWARE_TAG }}-failure-logs-${{ github.run_number }}
         path: ${{ github.workspace }}/debug-logs
@@ -276,7 +282,7 @@ jobs:
 
     - name: Upload Bin Directory(上传固件)
       if: steps.compile.outputs.status == 'success' && inputs.upload_bin_dir
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ env.SOURCE_REPO }}-bin-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
         path: ${{ env.OPENWRT_PATH }}/bin
@@ -316,7 +322,7 @@ jobs:
 
     - name: Upload Firmware To Artifact(将固件上传到Artifact)
       if: steps.compile.outputs.status == 'success' && !inputs.firmware_release
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ env.SOURCE_REPO }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE_PATH }}
@@ -381,4 +387,4 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         retain_days: 2
-        keep_minimum_runs: 0
+        keep_minimum_runs: 1
