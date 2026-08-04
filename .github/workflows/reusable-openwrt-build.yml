@@ -103,7 +103,7 @@ jobs:
         sudo timedatectl set-timezone "$TZ"
 
     - name: Checkout(检出代码)
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7.0.1
 
     - name: Clone Source Code(克隆源代码)
       run: |
@@ -154,27 +154,30 @@ jobs:
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
 
     - name: Cache DL Packages(缓存下载依赖)
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
-        key: dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.base_config_file, inputs.diy_script) }}
+        # 使用 run_id 作为 key 后缀，确保每次构建都写入新缓存条目
+        key: dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ inputs.target_profile }}-${{ github.run_id }}
         restore-keys: |
           dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ inputs.target_profile }}-
           dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-
         path: ${{ env.OPENWRT_PATH }}/dl
 
     - name: Cache Compiler Output(缓存编译产物)
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
-        key: ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}
+        # 使用 run_id 作为 key 后缀，确保每次构建都写入新缓存条目
+        key: ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ github.run_id }}
         restore-keys: |
           ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-
           ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
         path: ${{ env.OPENWRT_PATH }}/.ccache
 
     - name: Cache Toolchain(缓存工具链)
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
-        key: staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.base_config_file, inputs.diy_script) }}
+        # 使用 run_id 作为 key 后缀，确保每次构建都写入新缓存条目
+        key: staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ github.run_id }}
         restore-keys: |
           staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-
           staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
@@ -268,7 +271,7 @@ jobs:
 
     - name: Upload Failure Logs Artifact(上传失败日志)
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7.0.1
       with:
         name: ${{ env.FIRMWARE_TAG }}-failure-logs-${{ github.run_number }}
         path: ${{ github.workspace }}/debug-logs
@@ -280,7 +283,7 @@ jobs:
 
     - name: Upload Bin Directory(上传固件)
       if: steps.compile.outputs.status == 'success' && inputs.upload_bin_dir
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7.0.1
       with:
         name: ${{ env.SOURCE_REPO }}-bin-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
         path: ${{ env.OPENWRT_PATH }}/bin
@@ -320,7 +323,7 @@ jobs:
 
     - name: Upload Firmware To Artifact(将固件上传到Artifact)
       if: steps.compile.outputs.status == 'success' && !inputs.firmware_release
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7.0.1
       with:
         name: ${{ env.SOURCE_REPO }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE_PATH }}
@@ -329,7 +332,7 @@ jobs:
       id: release_upload
       if: steps.compile.outputs.status == 'success' && inputs.firmware_release
       continue-on-error: true
-      uses: ncipollo/release-action@v1
+      uses: ncipollo/release-action@v1.21.0
       with:
         name: ${{ env.DATE }} for ${{ env.FIRMWARE_TAG }}
         allowUpdates: true
@@ -378,6 +381,47 @@ jobs:
           - 固件内核版本：**${{ env.VERSION_KERNEL }}**
           - 固件编译前最后一次➦[主源码](${{ env.REPO_URL }})更新记录
           - ${{ env.VERSION_INFO }}
+
+    - name: Cleanup Old Caches(清理旧缓存)
+      # 在 post-step 保存新缓存之前，删除旧的同类缓存，防止缓存堆积超过 10GB
+      if: always()
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # 若环境变量未就绪（Job 早期失败），跳过清理
+        if [ -z "${SOURCE_REPO:-}" ]; then
+          echo "Skipping cache cleanup: SOURCE_REPO not set (early failure?)"
+          exit 0
+        fi
+
+        # 清理指定前缀的旧缓存
+        # keep=0：删除所有旧条目，post-step 会保存本次新缓存
+        cleanup_caches() {
+          local prefix="$1"
+          local keep="${2:-0}"
+          echo "--- Cleaning caches with prefix: $prefix (keep latest $keep) ---"
+          local ids
+          ids=$(gh cache list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json id,key,createdAt 2>/dev/null \
+            | jq -r --arg p "$prefix" --argjson k "$keep" \
+              '[.[] | select(.key | startswith($p))] | sort_by(.createdAt) | reverse | .[$k:] | .[].id' \
+            2>/dev/null || true)
+          if [ -z "$ids" ]; then
+            echo "No old caches to delete."
+            return
+          fi
+          for cache_id in $ids; do
+            echo "Deleting old cache ID: $cache_id"
+            gh cache delete "$cache_id" --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+          done
+        }
+
+        # dl 缓存前缀（兼容新旧 key 格式）
+        cleanup_caches "dl-${SOURCE_REPO}-${REPO_BRANCH}-${{ inputs.target_profile }}"
+        # ccache 前缀
+        cleanup_caches "ccache-${SOURCE_REPO}-${REPO_BRANCH}-${DEVICE_TARGET}-${DEVICE_SUBTARGET}-${{ inputs.target_profile }}"
+        # staging 工具链前缀
+        cleanup_caches "staging-${SOURCE_REPO}-${REPO_BRANCH}-"
 
     - name: Delete Old Workflows(删除旧工作流)
       if: inputs.cleanup_workflow_runs
