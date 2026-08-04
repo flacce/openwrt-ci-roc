@@ -58,6 +58,7 @@ jobs:
       contents: write
       actions: write
     env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
       REPO_URL: ${{ inputs.repo_url }}
       REPO_BRANCH: ${{ inputs.repo_branch }}
       CONFIG_FILE: ${{ inputs.config_file }}
@@ -153,7 +154,7 @@ jobs:
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
 
     - name: Cache DL Packages(缓存下载依赖)
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         key: dl-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.base_config_file, inputs.diy_script) }}
         restore-keys: |
@@ -162,7 +163,7 @@ jobs:
         path: ${{ env.OPENWRT_PATH }}/dl
 
     - name: Cache Compiler Output(缓存编译产物)
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         key: ccache-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}
         restore-keys: |
@@ -171,7 +172,7 @@ jobs:
         path: ${{ env.OPENWRT_PATH }}/.ccache
 
     - name: Cache Toolchain(缓存工具链)
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         key: staging-${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.VERSION_KERNEL }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ inputs.target_profile }}-${{ hashFiles(inputs.config_file, inputs.general_config_file, inputs.base_config_file, inputs.diy_script) }}
         restore-keys: |
