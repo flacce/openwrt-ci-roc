@@ -48,8 +48,7 @@ sed -i "s#_('Firmware Version'), (L\.isObject(boardinfo\.release) ? boardinfo\.r
             ]),#" feeds/luci/modules/luci-mod-status/htdocs/luci-static/resources/view/status/include/10_system.js
 
 # 移除过时或冲突的软件包
-sed -i "/attendedsysupgrade/d" $(find ./feeds/luci/collections/ -type f -name "Makefile")
-find ./ -type f -name "Makefile" \( -path "*/v2ray-geodata/*" -o -path "*/mosdns/*" \) -delete
+find ./feeds/luci/collections/ -type f -name "Makefile" -exec sed -i "/attendedsysupgrade/d" {} + 2>/dev/null || true
 
 # 调整NSS驱动q6_region内存区域预留大小（ipq6018.dtsi默认预留85MB，ipq6018-512m.dtsi默认预留55MB，带WiFi必须至少预留54MB，以下分别是改成预留16MB、32MB、64MB和96MB）
 # sed -i 's/reg = <0x0 0x4ab00000 0x0 0x[0-9a-f]\+>/reg = <0x0 0x4ab00000 0x0 0x01000000>/' target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/ipq6018-512m.dtsi
@@ -58,13 +57,13 @@ find ./ -type f -name "Makefile" \( -path "*/v2ray-geodata/*" -o -path "*/mosdns
 # sed -i 's/reg = <0x0 0x4ab00000 0x0 0x[0-9a-f]\+>/reg = <0x0 0x4ab00000 0x0 0x06000000>/' target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/ipq6018-512m.dtsi
 
 # 调节IPQ60XX的1.5GHz频率电压(从0.9375V提高到0.95V，过低可能导致不稳定，过高可能增加功耗和发热，具体数值需要根据实际情况调整)
-sed -i 's/opp-microvolt = <937500>;/opp-microvolt = <950000>;/' target/linux/qualcommax/patches-6.12/0038-v6.16-arm64-dts-qcom-ipq6018-add-1.5GHz-CPU-Frequency.patch
+if [ -f "target/linux/qualcommax/patches-6.12/0038-v6.16-arm64-dts-qcom-ipq6018-add-1.5GHz-CPU-Frequency.patch" ]; then
+  sed -i 's/opp-microvolt = <937500>;/opp-microvolt = <950000>;/' target/linux/qualcommax/patches-6.12/0038-v6.16-arm64-dts-qcom-ipq6018-add-1.5GHz-CPU-Frequency.patch
+fi
 
 # 移除要替换的包
 rm -rf \
-  feeds/luci/applications/luci-app-{argon-config,wechatpush,appfilter,frpc,frps} \
   feeds/luci/themes/luci-theme-argon \
-  feeds/packages/net/{open-app-filter,ariang,frp} \
   feeds/packages/lang/golang
 
 # Git稀疏克隆，只克隆指定目录到本地
@@ -84,24 +83,12 @@ function git_sparse_clone() {
 }
 
 # 并行拉取第三方软件包以提升下载效率
-( clone_into https://github.com/sbwml/luci-app-mosdns package/mosdns v5 ) &
-( clone_into https://github.com/sbwml/v2ray-geodata package/v2ray-geodata ) &
 ( git_sparse_clone master https://github.com/vernesong/OpenClash luci-app-openclash ) &
 ( clone_into https://github.com/EasyTier/luci-app-easytier package/luci-app-easytier ) &
-
-( git_sparse_clone ariang https://github.com/laipeng668/packages net/ariang ) &
-
 ( git_sparse_clone master https://github.com/laipeng668/packages lang/golang && mv -f package/golang feeds/packages/lang/golang ) &
-
-( git_sparse_clone frp-binary-toml https://github.com/laipeng668/packages net/frp && mv -f package/frp feeds/packages/net/frp ) &
-
-( git_sparse_clone frp https://github.com/laipeng668/luci applications/luci-app-frpc applications/luci-app-frps && mv -f package/luci-app-frpc feeds/luci/applications/luci-app-frpc && mv -f package/luci-app-frps feeds/luci/applications/luci-app-frps ) &
-
 ( clone_into https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora ) &
 ( clone_into https://github.com/eamonxg/luci-app-aurora-config package/luci-app-aurora-config ) &
 ( clone_into https://github.com/gdy666/luci-app-lucky package/luci-app-lucky ) &
-( clone_into https://github.com/tty228/luci-app-wechatpush package/luci-app-wechatpush ) &
-( clone_into https://github.com/destan19/OpenAppFilter.git package/OpenAppFilter ) &
 ( clone_into https://github.com/laipeng668/luci-app-gecoosac package/luci-app-gecoosac ) &
 ( clone_into https://github.com/NONGFAH/luci-app-athena-led package/luci-app-athena-led ) &
 
