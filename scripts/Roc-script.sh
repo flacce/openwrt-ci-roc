@@ -63,8 +63,7 @@ fi
 
 # 移除要替换的包
 rm -rf \
-  feeds/luci/themes/luci-theme-argon \
-  feeds/packages/lang/golang
+  feeds/luci/themes/luci-theme-argon
 
 # Git稀疏克隆，只克隆指定目录到本地
 function git_sparse_clone() {
@@ -82,9 +81,42 @@ function git_sparse_clone() {
   rm -rf "$repo_dir"
 }
 
-# 并行拉取第三方软件包以提升下载效率
+# 下载 Xray 和 sing-box 官方预编译核心及规则库
+function download_prebuilt_cores() {
+  echo "==> Downloading prebuilt Xray and Sing-Box cores..."
+  mkdir -p files/usr/bin files/usr/share/v2ray
+
+  local xray_ver="v26.3.27"
+  local xray_url="https://github.com/XTLS/Xray-core/releases/download/${xray_ver}/Xray-linux-arm64-v8a.zip"
+  local sb_ver="v1.14.1"
+  local sb_url="https://github.com/SagerNet/sing-box/releases/download/${sb_ver}/sing-box-${sb_ver#v}-linux-arm64-musl.tar.gz"
+
+  local tmp_dir
+  tmp_dir="$(mktemp -d /tmp/cores.XXXXXX)"
+
+  if retry curl -fsSL -o "${tmp_dir}/xray.zip" "${xray_url}"; then
+    unzip -o -q "${tmp_dir}/xray.zip" xray -d files/usr/bin/
+    chmod 0755 files/usr/bin/xray
+    unzip -o -q "${tmp_dir}/xray.zip" geoip.dat geosite.dat -d files/usr/share/v2ray/
+    echo "==> Xray-core (${xray_ver}) and geodata deployed."
+  fi
+
+  if retry curl -fsSL -o "${tmp_dir}/sing-box.tar.gz" "${sb_url}"; then
+    tar -xzf "${tmp_dir}/sing-box.tar.gz" -C files/usr/bin/ --strip-components=1 "sing-box-${sb_ver#v}-linux-arm64-musl/sing-box"
+    chmod 0755 files/usr/bin/sing-box
+    echo "==> sing-box (${sb_ver}) deployed."
+  fi
+
+  # 兼容软链接 /usr/share/xray -> /usr/share/v2ray
+  mkdir -p files/usr/share
+  ln -sf v2ray files/usr/share/xray
+
+  rm -rf "${tmp_dir}"
+}
+
+# 并行拉取第三方软件包及核心组件以提升效率
+( download_prebuilt_cores ) &
 ( clone_into https://github.com/EasyTier/luci-app-easytier package/luci-app-easytier ) &
-( git_sparse_clone master https://github.com/laipeng668/packages lang/golang && mv -f package/golang feeds/packages/lang/golang ) &
 ( clone_into https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora ) &
 ( clone_into https://github.com/eamonxg/luci-app-aurora-config package/luci-app-aurora-config ) &
 ( clone_into https://github.com/gdy666/luci-app-lucky package/luci-app-lucky ) &
