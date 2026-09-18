@@ -12,7 +12,7 @@ jobs:
     secrets: inherit
     with:
       repo_url: https://github.com/laipeng668/openwrt-6.x.git
-      repo_branch: main-nss
+      repo_branch: 25.12-nss
       config_file: configs/IPQ60XX.config
       general_config_file: configs/General.config
       base_config_file: configs/qualcommax-base.config

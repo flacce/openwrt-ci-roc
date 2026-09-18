@@ -83,7 +83,6 @@ function git_sparse_clone() {
 }
 
 # 并行拉取第三方软件包以提升下载效率
-( git_sparse_clone master https://github.com/vernesong/OpenClash luci-app-openclash ) &
 ( clone_into https://github.com/EasyTier/luci-app-easytier package/luci-app-easytier ) &
 ( git_sparse_clone master https://github.com/laipeng668/packages lang/golang && mv -f package/golang feeds/packages/lang/golang ) &
 ( clone_into https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora ) &
