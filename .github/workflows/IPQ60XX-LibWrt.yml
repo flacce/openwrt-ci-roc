@@ -3,6 +3,16 @@ name: IPQ60XX-LibWrt
 on:
   workflow_dispatch:
   workflow_call:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/IPQ60XX-LibWrt.yml'
+      - '.github/workflows/reusable-openwrt-build.yml'
+      - 'configs/IPQ60XX.config'
+      - 'configs/General.config'
+      - 'configs/qualcommax-base.config'
+      - 'scripts/Roc-script.sh'
   schedule:
     - cron: '0 20 * * *'
 

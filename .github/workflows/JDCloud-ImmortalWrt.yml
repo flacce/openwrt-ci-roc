@@ -3,6 +3,16 @@ name: JDCloud-ImmortalWrt
 on:
   workflow_dispatch:
   workflow_call:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/JDCloud-ImmortalWrt.yml'
+      - '.github/workflows/reusable-openwrt-build.yml'
+      - 'configs/JDCloud.config'
+      - 'configs/General.config'
+      - 'configs/qualcommax-base.config'
+      - 'scripts/Roc-script.sh'
   schedule:
     - cron: '0 20 * * *'
 
