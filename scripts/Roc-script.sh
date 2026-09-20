@@ -103,9 +103,8 @@ function download_prebuilt_cores() {
   retry curl -fsSL -o files/usr/share/v2ray/geoip.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat" || true
   retry curl -fsSL -o files/usr/share/v2ray/geosite.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" || true
 
-  # 兼容软链接 /usr/share/xray -> /usr/share/v2ray
-  mkdir -p files/usr/share
-  ln -sf v2ray files/usr/share/xray 2>/dev/null || true
+  # 确保清理残留软链接
+  rm -rf files/usr/share/xray
 
   rm -rf "${tmp_dir}"
 }
