@@ -84,19 +84,25 @@ function git_sparse_clone() {
   rm -rf "$repo_dir"
 }
 
-# 下载 Sing-Box 官方预编译核心及规则库（纯 Sing-Box 方案，剔除 Xray）
+# 下载 Sing-Box 官方预编译预览版（Pre-release）核心及规则库（纯 Sing-Box 方案，剔除 Xray）
 function download_prebuilt_cores() {
-  echo "==> Downloading prebuilt Sing-Box core and geodata..."
   mkdir -p files/usr/bin files/usr/share/v2ray files/etc/uci-defaults
 
-  local sb_ver="v1.14.1"
+  # 优先获取官方最新预览版/发布版标签，API受限时保底使用最新 1.15.0-alpha.6
+  local sb_ver="v1.15.0-alpha.6"
+  local latest_release
+  latest_release=$(curl -fsSL https://api.github.com/repos/SagerNet/sing-box/releases 2>/dev/null | jq -r '.[0].tag_name' 2>/dev/null || true)
+  if [[ "$latest_release" =~ ^v[0-9] ]]; then
+    sb_ver="$latest_release"
+  fi
+  echo "==> Downloading prebuilt Sing-Box preview core (${sb_ver}) and geodata..."
   local sb_url="https://github.com/SagerNet/sing-box/releases/download/${sb_ver}/sing-box-${sb_ver#v}-linux-arm64-musl.tar.gz"
 
   local tmp_dir
   tmp_dir="$(mktemp -d /tmp/cores.XXXXXX)"
 
   if retry curl -fsSL -o "${tmp_dir}/sing-box.tar.gz" "${sb_url}"; then
-    tar -xzf "${tmp_dir}/sing-box.tar.gz" -C files/usr/bin/ --strip-components=1 "sing-box-${sb_ver#v}-linux-arm64-musl/sing-box"
+    tar -xzf "${tmp_dir}/sing-box.tar.gz" -C files/usr/bin/ --wildcards '*/sing-box' --strip-components=1
     chmod 0755 files/usr/bin/sing-box
     echo "==> sing-box (${sb_ver}) deployed."
   fi
