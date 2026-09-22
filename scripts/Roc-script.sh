@@ -142,6 +142,26 @@ if [ -f package/luci-app-homeproxy/Makefile ]; then
   sed -i '/+sing-box/d' package/luci-app-homeproxy/Makefile
   sed -i '/LUCI_EXTRA_DEPENDS/d' package/luci-app-homeproxy/Makefile
   sed -i '/PKG_NAME:=luci-app-homeproxy/a USERID:=sing-box=5566:sing-box=5566' package/luci-app-homeproxy/Makefile
+
+  # 修复 Hysteria2 混淆类型为 none 导致 sing-box 校验失败
+  python3 -c '
+from pathlib import Path
+hp = Path("package/luci-app-homeproxy")
+for p in hp.rglob("*.uc"):
+    s = p.read_text(encoding="utf-8")
+    old_c = "outbound.obfs = (node.type === '\''hysteria2'\'' && node.hysteria_obfs_type) ? {\n\t\t\ttype: node.hysteria_obfs_type,\n\t\t\tpassword: node.hysteria_obfs_password\n\t\t} : node.hysteria_obfs_password;"
+    new_c = "if (node.type === '\''hysteria2'\'') {\n\t\t\toutbound.obfs = (node.hysteria_obfs_type && node.hysteria_obfs_type !== '\''none'\'') ? {\n\t\t\t\ttype: node.hysteria_obfs_type,\n\t\t\t\tpassword: node.hysteria_obfs_password\n\t\t\t} : null;\n\t\t} else {\n\t\t\toutbound.obfs = node.hysteria_obfs_password;\n\t\t}"
+    old_s = "inbound.obfs = (cfg.type === '\''hysteria2'\'' && cfg.hysteria_obfs_type) ? {\n\t\t\ttype: cfg.hysteria_obfs_type,\n\t\t\tpassword: cfg.hysteria_obfs_password\n\t\t} : cfg.hysteria_obfs_password;"
+    new_s = "if (cfg.type === '\''hysteria2'\'') {\n\t\t\tinbound.obfs = (cfg.hysteria_obfs_type && cfg.hysteria_obfs_type !== '\''none'\'') ? {\n\t\t\t\ttype: cfg.hysteria_obfs_type,\n\t\t\t\tpassword: cfg.hysteria_obfs_password\n\t\t\t} : null;\n\t\t} else {\n\t\t\tinbound.obfs = cfg.hysteria_obfs_password;\n\t\t}"
+    s = s.replace(old_c, new_c).replace(old_s, new_s)
+    s = s.replace("hysteria_obfs_type: proxy.obfs,", "hysteria_obfs_type: (proxy.obfs && proxy.obfs !== '\''none'\'') ? proxy.obfs : null,")
+    s = s.replace("hysteria_obfs_type: params.obfs,", "hysteria_obfs_type: (params.obfs && params.obfs !== '\''none'\'') ? params.obfs : null,")
+    p.write_text(s, encoding="utf-8")
+for p in hp.rglob("*.js"):
+    s = p.read_text(encoding="utf-8")
+    s = s.replace("hysteria_obfs_type:params.get('\''obfs'\''),", "hysteria_obfs_type:(params.get('\''obfs'\'')&&params.get('\''obfs'\'')!=='\''none'\'')?params.get('\''obfs'\''):null,")
+    p.write_text(s, encoding="utf-8")
+'
 fi
 
 chmod +x package/luci-app-homeproxy/root/etc/init.d/homeproxy package/luci-app-homeproxy/root/etc/homeproxy/scripts/*.sh package/luci-app-homeproxy/root/usr/libexec/* 2>/dev/null || true
