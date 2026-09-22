@@ -64,7 +64,9 @@ fi
 # 移除要替换的包
 rm -rf \
   feeds/luci/themes/luci-theme-argon \
-  feeds/luci/applications/luci-app-passwall
+  feeds/luci/applications/luci-app-passwall \
+  feeds/luci/applications/luci-app-passwall2 \
+  feeds/luci/applications/luci-app-homeproxy
 
 # Git稀疏克隆，只克隆指定目录到本地
 function git_sparse_clone() {
@@ -85,7 +87,7 @@ function git_sparse_clone() {
 # 下载 Sing-Box 官方预编译核心及规则库（纯 Sing-Box 方案，剔除 Xray）
 function download_prebuilt_cores() {
   echo "==> Downloading prebuilt Sing-Box core and geodata..."
-  mkdir -p files/usr/bin files/usr/share/v2ray
+  mkdir -p files/usr/bin files/usr/share/v2ray files/etc/uci-defaults
 
   local sb_ver="v1.14.1"
   local sb_url="https://github.com/SagerNet/sing-box/releases/download/${sb_ver}/sing-box-${sb_ver#v}-linux-arm64-musl.tar.gz"
@@ -99,7 +101,15 @@ function download_prebuilt_cores() {
     echo "==> sing-box (${sb_ver}) deployed."
   fi
 
-  # 下载最新 Loyalsoldier 规则库供 geoview 转换为 sing-box 规则集
+  # 确保目标系统存在 sing-box 运行账号与用户组（供 procd/ujail 权限沙箱）
+  cat << 'EOF' > files/etc/uci-defaults/99-sing-box-user
+grep -q '^sing-box:' /etc/passwd || echo 'sing-box:x:5566:5566:sing-box:/var/run/sing-box:/bin/false' >> /etc/passwd
+grep -q '^sing-box:' /etc/group || echo 'sing-box:x:5566:' >> /etc/group
+exit 0
+EOF
+  chmod +x files/etc/uci-defaults/99-sing-box-user
+
+  # 下载最新 Loyalsoldier 规则库供转换或通用引用
   retry curl -fsSL -o files/usr/share/v2ray/geoip.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat" || true
   retry curl -fsSL -o files/usr/share/v2ray/geosite.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" || true
 
@@ -112,7 +122,7 @@ function download_prebuilt_cores() {
 # 并行拉取第三方软件包及核心组件以提升效率
 ( download_prebuilt_cores ) &
 ( clone_into https://github.com/EasyTier/luci-app-easytier package/luci-app-easytier ) &
-( clone_into https://github.com/Openwrt-Passwall/openwrt-passwall2 package/openwrt-passwall2 && mv -f package/openwrt-passwall2/luci-app-passwall2 package/ && rm -rf package/openwrt-passwall2 ) &
+( clone_into https://github.com/VIKINGYFY/packages package/viking-packages main && mv -f package/viking-packages/luci-app-homeproxy package/ && rm -rf package/viking-packages ) &
 ( clone_into https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora ) &
 ( clone_into https://github.com/eamonxg/luci-app-aurora-config package/luci-app-aurora-config ) &
 ( clone_into https://github.com/gdy666/luci-app-lucky package/luci-app-lucky ) &
@@ -121,16 +131,13 @@ function download_prebuilt_cores() {
 
 wait
 
-# PassWall2 避免编译 xray-core / sing-box（由 download_prebuilt_cores 注入预编译静态二进制）
-if [ -f package/luci-app-passwall2/Makefile ]; then
-  sed -i '/select PACKAGE_xray-core/d' package/luci-app-passwall2/Makefile
-  sed -i '/select PACKAGE_sing-box/d' package/luci-app-passwall2/Makefile
+# HomeProxy 避免编译 sing-box（由 download_prebuilt_cores 注入预编译静态二进制）
+if [ -f package/luci-app-homeproxy/Makefile ]; then
+  sed -i '/+sing-box/d' package/luci-app-homeproxy/Makefile
+  sed -i '/LUCI_EXTRA_DEPENDS/d' package/luci-app-homeproxy/Makefile
+  sed -i '/PKG_NAME:=luci-app-homeproxy/a USERID:=sing-box=5566:sing-box=5566' package/luci-app-homeproxy/Makefile
 fi
 
-# 将默认配置中的核心类型统一指向 sing-box
-if [ -f package/luci-app-passwall2/root/usr/share/passwall2/0_default_config ]; then
-  sed -i "s/option type 'Xray'/option type 'sing-box'/g" package/luci-app-passwall2/root/usr/share/passwall2/0_default_config
-fi
-
+chmod +x package/luci-app-homeproxy/root/etc/init.d/homeproxy package/luci-app-homeproxy/root/etc/homeproxy/scripts/*.sh package/luci-app-homeproxy/root/usr/libexec/* 2>/dev/null || true
 chmod +x package/luci-app-athena-led/root/etc/init.d/athena_led package/luci-app-athena-led/root/usr/sbin/athena-led 2>/dev/null || true
 
