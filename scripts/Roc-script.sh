@@ -220,8 +220,9 @@ if rpcd_file.is_file():
     rpcd = rpcd_file.read_text(encoding="utf-8")
     rpcd = re.sub(r"(function\s+appendGroup\(id\)\s*\{)", r"\1\n\t\tif (id in ['dns_proxy', 'dns_direct'])\n\t\t\treturn;", rpcd)
     rpcd = re.sub(r"(id\s+in\s+\[\s*'direct'\s*,\s*'proxy'\s*\])", r"id in ['direct', 'proxy', 'dns_proxy', 'dns_direct']", rpcd)
+    rpcd = re.sub(r"(if\s*\(domain\s*&&\s*!replace\(domain,\s*/\^\\\.+|\\\.\+\$/g,\s*''\)\))", r"domain = replace(domain, /^\*+\.?/, '');\n\t\t\1", rpcd)
     rpcd_file.write_text(rpcd, encoding="utf-8")
-    print("==> Patched luci.homeproxy for DNS direct/proxy lists")
+    print("==> Patched luci.homeproxy for DNS direct/proxy lists & wildcard support")
 
 # 3. Patch client.js
 cjs_file = Path("package/luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/client.js")
@@ -229,6 +230,7 @@ if cjs_file.is_file():
     cjs = cjs_file.read_text(encoding="utf-8")
     cjs = re.sub(r"const\s+ids\s*=\s*\[\s*'direct'\s*,\s*'proxy'\s*\];", "const ids = ['direct', 'proxy', 'dns_proxy', 'dns_direct'];", cjs)
     cjs = re.sub(r"const\s+builtin\s*=\s*id\s*===\s*'direct'\s*\|\|\s*id\s*===\s*'proxy';", "const builtin = id === 'direct' || id === 'proxy' || id === 'dns_proxy' || id === 'dns_direct';", cjs)
+    cjs = re.sub(r"(item\s*=\s*item\.replace\(/\^\\\.+|\\\.\+\$/g,\s*''\);)", r"item = item.replace(/^\\*+\\.?/, '');\n\t\t\t\1", cjs)
     match_proxy = re.search(r"(ss\.tab\('proxy_list'[\s\S]*?configureDomainList\(so,\s*'proxy'\);)", cjs)
     if match_proxy:
         proxy_block = match_proxy.group(1)
@@ -245,7 +247,14 @@ if cjs_file.is_file():
 \t\tconfigureDomainList(so, 'dns_direct');"""
         cjs = cjs.replace(proxy_block, proxy_block + extra_tabs, 1)
     cjs_file.write_text(cjs, encoding="utf-8")
-    print("==> Patched client.js for DNS direct/proxy lists")
+    print("==> Patched client.js for DNS direct/proxy lists & wildcard support")
+# 4. Patch homeproxy.uc (Wildcard *. support)
+hp_file = Path("package/luci-app-homeproxy/root/etc/homeproxy/scripts/homeproxy.uc")
+if hp_file.is_file():
+    hp = hp_file.read_text(encoding="utf-8")
+    hp = hp.replace("domain = lc(replace(trim(domain), /^\\.+|\\.+$/g, ''));", "domain = lc(replace(replace(trim(domain), /^\\*+\\.?/, ''), /^\\.+|\\.+$/g, ''));")
+    hp_file.write_text(hp, encoding="utf-8")
+    print("==> Patched homeproxy.uc for wildcard domain support")
 EOF
 
   # 预创建分流列表空文件
