@@ -162,6 +162,95 @@ for p in hp.rglob("*.js"):
     s = s.replace("hysteria_obfs_type:params.get('\''obfs'\''),", "hysteria_obfs_type:(params.get('\''obfs'\'')&&params.get('\''obfs'\'')!=='\''none'\'')?params.get('\''obfs'\''):null,")
     p.write_text(s, encoding="utf-8")
 '
+
+  # 为 HomeProxy 分流控制新增“DNS 代理列表”与“DNS 直连列表”支持
+  python3 - << 'EOF'
+import re
+from pathlib import Path
+
+# 1. Patch generate_client.uc
+gc_file = Path("package/luci-app-homeproxy/root/etc/homeproxy/scripts/generate_client.uc")
+if gc_file.is_file():
+    gc = gc_file.read_text(encoding="utf-8")
+    gc = gc.replace("let domain_groups = [];", """let domain_groups = [];
+
+let dns_groups = [];
+
+function add_dns_group(id, server_tag) {
+\tconst domains = normalizeDomainList(readfile(domainListPath(id)));
+\tif (!length(domains))
+\t\treturn;
+
+\tconst split_domains = splitDomainList(domains);
+\tpush(dns_groups, { id, server: server_tag, ...split_domains });
+}
+
+add_dns_group('dns_proxy', 'main-dns');
+add_dns_group('dns_direct', (routing_mode === 'bypass_mainland_china') ? 'china-dns' : 'default-dns');""", 1)
+
+    dns_rules_inj = """\tfor (let group in dns_groups) {
+\t\tif (length(group.suffixes))
+\t\t\tpush(config.dns.rules, {
+\t\t\t\trule_set: domain_rule_set_tag(group, 'suffix'),
+\t\t\t\taction: 'route',
+\t\t\t\tserver: group.server
+\t\t\t});
+\t\tif (length(group.keywords))
+\t\t\tpush(config.dns.rules, {
+\t\t\t\trule_set: domain_rule_set_tag(group, 'keyword'),
+\t\t\t\taction: 'route',
+\t\t\t\tserver: group.server
+\t\t\t});
+\t}
+
+"""
+    gc = re.sub(r"(\tfor\s*\(\s*let\s+group\s+in\s+domain_groups\s*\)\s*\n\s*add_domain_dns_rules\(group\);)", dns_rules_inj + r"\1", gc)
+
+    inline_inj = """\n\n\tfor (let group in dns_groups) {
+\t\tadd_inline_domain_rule_set(config.route.rule_set, group, 'suffix');
+\t\tadd_inline_domain_rule_set(config.route.rule_set, group, 'keyword');
+\t}"""
+    gc = re.sub(r"(\tfor\s*\(\s*let\s+group\s+in\s+domain_groups\s*\)\s*\{[\s\S]*?add_inline_domain_rule_set\(config\.route\.rule_set,\s*group,\s*'keyword'\);\s*\})", r"\1" + inline_inj, gc)
+    gc_file.write_text(gc, encoding="utf-8")
+    print("==> Patched generate_client.uc for DNS direct/proxy lists")
+
+# 2. Patch luci.homeproxy
+rpcd_file = Path("package/luci-app-homeproxy/root/usr/share/rpcd/ucode/luci.homeproxy")
+if rpcd_file.is_file():
+    rpcd = rpcd_file.read_text(encoding="utf-8")
+    rpcd = re.sub(r"(function\s+appendGroup\(id\)\s*\{)", r"\1\n\t\tif (id in ['dns_proxy', 'dns_direct'])\n\t\t\treturn;", rpcd)
+    rpcd = re.sub(r"(id\s+in\s+\[\s*'direct'\s*,\s*'proxy'\s*\])", r"id in ['direct', 'proxy', 'dns_proxy', 'dns_direct']", rpcd)
+    rpcd_file.write_text(rpcd, encoding="utf-8")
+    print("==> Patched luci.homeproxy for DNS direct/proxy lists")
+
+# 3. Patch client.js
+cjs_file = Path("package/luci-app-homeproxy/htdocs/luci-static/resources/view/homeproxy/client.js")
+if cjs_file.is_file():
+    cjs = cjs_file.read_text(encoding="utf-8")
+    cjs = re.sub(r"const\s+ids\s*=\s*\[\s*'direct'\s*,\s*'proxy'\s*\];", "const ids = ['direct', 'proxy', 'dns_proxy', 'dns_direct'];", cjs)
+    cjs = re.sub(r"const\s+builtin\s*=\s*id\s*===\s*'direct'\s*\|\|\s*id\s*===\s*'proxy';", "const builtin = id === 'direct' || id === 'proxy' || id === 'dns_proxy' || id === 'dns_direct';", cjs)
+    match_proxy = re.search(r"(ss\.tab\('proxy_list'[\s\S]*?configureDomainList\(so,\s*'proxy'\);)", cjs)
+    if match_proxy:
+        proxy_block = match_proxy.group(1)
+        extra_tabs = """
+
+\t\tss.tab('dns_proxy_list', _('DNS 代理列表'));
+\t\tso = ss.taboption('dns_proxy_list', form.TextValue, '_dns_proxy_list', null,
+\t\t\t_('此列表中的域名强制使用海外主节点 DNS 解析（例如直连但国内 DNS 污染的域名，如 linux.do）。'));
+\t\tconfigureDomainList(so, 'dns_proxy');
+
+\t\tss.tab('dns_direct_list', _('DNS 直连列表'));
+\t\tso = ss.taboption('dns_direct_list', form.TextValue, '_dns_direct_list', null,
+\t\t\t_('此列表中的域名强制使用国内 DNS（China DNS）解析。'));
+\t\tconfigureDomainList(so, 'dns_direct');"""
+        cjs = cjs.replace(proxy_block, proxy_block + extra_tabs, 1)
+    cjs_file.write_text(cjs, encoding="utf-8")
+    print("==> Patched client.js for DNS direct/proxy lists")
+EOF
+
+  # 预创建分流列表空文件
+  mkdir -p files/etc/homeproxy/diversion
+  touch files/etc/homeproxy/diversion/dns_proxy.txt files/etc/homeproxy/diversion/dns_direct.txt
 fi
 
 chmod +x package/luci-app-homeproxy/root/etc/init.d/homeproxy package/luci-app-homeproxy/root/etc/homeproxy/scripts/*.sh package/luci-app-homeproxy/root/usr/libexec/* 2>/dev/null || true
