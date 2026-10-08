@@ -220,7 +220,7 @@ if rpcd_file.is_file():
     rpcd = rpcd_file.read_text(encoding="utf-8")
     rpcd = re.sub(r"(function\s+appendGroup\(id\)\s*\{)", r"\1\n\t\tif (id in ['dns_proxy', 'dns_direct'])\n\t\t\treturn;", rpcd)
     rpcd = re.sub(r"(id\s+in\s+\[\s*'direct'\s*,\s*'proxy'\s*\])", r"id in ['direct', 'proxy', 'dns_proxy', 'dns_direct']", rpcd)
-    rpcd = re.sub(r"(if\s*\(domain\s*&&\s*!replace\(domain,\s*/\^\\\.+|\\\.\+\$/g,\s*''\)\))", r"domain = replace(domain, /^\*+\.?/, '');\n\t\t\1", rpcd)
+    rpcd = rpcd.replace("if (domain && !replace(domain, /^\\.+|\\.+$/g, ''))", "domain = replace(domain, /^\\*+\\.?/, '');\n\t\tif (domain && !replace(domain, /^\\.+|\\.+$/g, ''))")
     rpcd_file.write_text(rpcd, encoding="utf-8")
     print("==> Patched luci.homeproxy for DNS direct/proxy lists & wildcard support")
 
@@ -230,7 +230,7 @@ if cjs_file.is_file():
     cjs = cjs_file.read_text(encoding="utf-8")
     cjs = re.sub(r"const\s+ids\s*=\s*\[\s*'direct'\s*,\s*'proxy'\s*\];", "const ids = ['direct', 'proxy', 'dns_proxy', 'dns_direct'];", cjs)
     cjs = re.sub(r"const\s+builtin\s*=\s*id\s*===\s*'direct'\s*\|\|\s*id\s*===\s*'proxy';", "const builtin = id === 'direct' || id === 'proxy' || id === 'dns_proxy' || id === 'dns_direct';", cjs)
-    cjs = re.sub(r"(item\s*=\s*item\.replace\(/\^\\\.+|\\\.\+\$/g,\s*''\);)", r"item = item.replace(/^\\*+\\.?/, '');\n\t\t\t\1", cjs)
+    cjs = cjs.replace("item = item.replace(/^\\.+|\\.+$/g, '');", "item = item.replace(/^\\*+\\.?/, '');\n\t\t\titem = item.replace(/^\\.+|\\.+$/g, '');")
     match_proxy = re.search(r"(ss\.tab\('proxy_list'[\s\S]*?configureDomainList\(so,\s*'proxy'\);)", cjs)
     if match_proxy:
         proxy_block = match_proxy.group(1)
