@@ -14,7 +14,7 @@ on:
       - 'configs/qualcommax-base.config'
       - 'scripts/Roc-script.sh'
   schedule:
-    - cron: '0 20 * * *'
+    - cron: '20 20 * * *'
 
 jobs:
   Build:

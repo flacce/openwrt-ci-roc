@@ -88,10 +88,14 @@ function git_sparse_clone() {
 function download_prebuilt_cores() {
   mkdir -p files/usr/bin files/usr/share/v2ray files/etc/uci-defaults
 
-  # 优先获取官方最新预览版/发布版标签，API受限时保底使用最新 1.15.0-alpha.6
-  local sb_ver="v1.15.0-alpha.6"
+  # 优先获取官方最新预览版/发布版标签，API受限时保底使用最新 1.15.0-alpha.13
+  local sb_ver="v1.15.0-alpha.13"
   local latest_release
-  latest_release=$(curl -fsSL https://api.github.com/repos/SagerNet/sing-box/releases 2>/dev/null | jq -r '.[0].tag_name' 2>/dev/null || true)
+  local auth_header=()
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    auth_header=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
+  latest_release=$(curl -fsSL "${auth_header[@]}" -H "User-Agent: curl" https://api.github.com/repos/SagerNet/sing-box/releases 2>/dev/null | jq -r '.[0].tag_name' 2>/dev/null || true)
   if [[ "$latest_release" =~ ^v[0-9] ]]; then
     sb_ver="$latest_release"
   fi

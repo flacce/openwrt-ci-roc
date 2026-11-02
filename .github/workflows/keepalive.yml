@@ -1,0 +1,23 @@
+name: Keepalive
+
+on:
+  schedule:
+    - cron: '0 0 1,15 * *' # 每月 1 号和 15 号自动运行一次，防止 Fork 仓库定时工作流因无提交被 GitHub 静默休眠
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout(检出代码)
+        uses: actions/checkout@v7.0.1
+
+      - name: Keepalive Commit(防休眠活跃提交)
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git commit --allow-empty -m "chore(ci): keepalive trigger [skip ci]"
+          git push

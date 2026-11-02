@@ -238,6 +238,8 @@ jobs:
         retry ./scripts/feeds install -a
 
     - name: Load Custom Configuration(加载自定义配置)
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         chmod +x $DIY_SCRIPT
         cd $OPENWRT_PATH
@@ -377,7 +379,7 @@ jobs:
 
     - name: Retry Release Upload On Transient Failure(失败后重试发布)
       if: steps.compile.outputs.status == 'success' && inputs.firmware_release && steps.release_upload.outcome == 'failure'
-      uses: ncipollo/release-action@v1
+      uses: ncipollo/release-action@v1.21.0
       with:
         name: ${{ env.DATE }} for ${{ env.FIRMWARE_TAG }}
         allowUpdates: true
