@@ -170,6 +170,24 @@ jobs:
         fi
         echo "DEVICE_SUBTARGET=${DEVICE_SUBTARGET:-unknown}" >> $GITHUB_ENV
 
+        # 准确识别目标内核版本（支持 CONFIG_TESTING_KERNEL 测试内核，如 6.18）
+        TARGET_MAKEFILE="$OPENWRT_PATH/target/linux/${DEVICE_TARGET}/Makefile"
+        PATCHVER=""
+        if grep -q '^CONFIG_TESTING_KERNEL=y' $merged_config 2>/dev/null; then
+          if [ -f "$TARGET_MAKEFILE" ]; then
+            PATCHVER=$(grep -oP '^KERNEL_TESTING_PATCHVER:=\K[0-9.]+' "$TARGET_MAKEFILE" || true)
+          fi
+        fi
+        if [ -z "$PATCHVER" ] && [ -f "$TARGET_MAKEFILE" ]; then
+          PATCHVER=$(grep -oP '^KERNEL_PATCHVER:=\K[0-9.]+' "$TARGET_MAKEFILE" || true)
+        fi
+        if [ -n "$PATCHVER" ] && [ -f "$OPENWRT_PATH/target/linux/generic/kernel-$PATCHVER" ]; then
+          DYNAMIC_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' "$OPENWRT_PATH/target/linux/generic/kernel-$PATCHVER" | head -n1 || true)
+          if [ -n "$DYNAMIC_KERNEL" ]; then
+            echo "VERSION_KERNEL=$DYNAMIC_KERNEL" >> $GITHUB_ENV
+          fi
+        fi
+
     - name: Cache DL Packages(缓存下载依赖)
       uses: actions/cache@v6.1.0
       with:
