@@ -339,7 +339,6 @@ jobs:
         # 确定固件命名
         case "${{ inputs.target_profile }}" in
           jdcloud)        firmware_name="Arthur.Athena" ;;
-          jdcloud_nowifi) firmware_name="Arthur.Athena.Taiyi.NoWiFi" ;;
           ipq60xx)        firmware_name="IPQ60XX" ;;
           *)              echo "Unsupported target_profile: ${{ inputs.target_profile }}"; exit 1 ;;
         esac
@@ -348,7 +347,6 @@ jobs:
         cp $OPENWRT_PATH/.config "${firmware_name}.config"
         mv config.buildinfo "${firmware_name}.config.buildinfo"
         [ -n "$manifest_file" ] && mv "$manifest_file" "${firmware_name}.manifest"
-        [ "${{ inputs.target_profile }}" = "jdcloud_nowifi" ] && for f in *qualcommax*.bin; do mv "$f" "${f//qualcommax/nowifi}"; done
 
         # 打包 APK
         apk_files=( $OPENWRT_PATH/bin/packages/*/*/*.apk )
