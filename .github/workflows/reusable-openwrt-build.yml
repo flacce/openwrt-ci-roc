@@ -93,14 +93,23 @@ jobs:
           done
         }
         retry sudo -E apt-get -y update
-        retry sudo -E apt-get -y install --no-install-recommends \
-          build-essential clang flex bison gawk gettext git libncurses5-dev \
-          libssl-dev python3-distutils rsync unzip zlib1g-dev file wget \
+        if ! retry sudo -E apt-get -y install --no-install-recommends \
+          build-essential clang flex bison gawk gettext git libncurses-dev \
+          libssl-dev rsync unzip zlib1g-dev file wget \
           libglib2.0-dev libelf-dev libgnutls28-dev jq \
-          bzip2 ccache ecj fastjar g++-multilib gpack git-core \
-          java-propose-classpath lib32ncurses-dev lib32z1-dev libglib2.0-dev \
+          bzip2 ccache ecj fastjar g++-multilib \
+          java-propose-classpath lib32ncurses-dev lib32z1-dev \
           python3-setuptools python3-pyelftools subversion swig uglifyjs \
-          upx-ucl xmlto zlib1g-dev || retry sudo -E apt-get -y install $(curl -fsSL ophub.org/ubuntu2404-make-openwrt-depends)
+          upx-ucl xmlto; then
+          echo "Default package install failed, falling back to remote package list..."
+          DEPENDS=$(curl -fsSL --connect-timeout 15 -m 30 ophub.org/ubuntu2404-make-openwrt-depends || true)
+          if [ -n "$DEPENDS" ]; then
+            retry sudo -E apt-get -y install $DEPENDS
+          else
+            echo "Failed to fetch remote dependencies list"
+            return 1
+          fi
+        fi
         sudo timedatectl set-timezone "$TZ"
 
     - name: Checkout(检出代码)
@@ -154,19 +163,19 @@ jobs:
         merged_config="$GENERAL_CONFIG_FILE ${BASE_CONFIG_FILE:+$BASE_CONFIG_FILE} $CONFIG_FILE"
         
         # 提取 target 架构（如 qualcommax）
-        DEVICE_TARGET=$(grep -oP '^CONFIG_TARGET_\K(?!DEVICE|MULTI|OPTIONS|PER_DEVICE)[a-z0-9]+(?==y)' $merged_config | head -1 || true)
+        DEVICE_TARGET=$(grep -h -oP '^CONFIG_TARGET_\K(?!DEVICE|MULTI|OPTIONS|PER_DEVICE)[a-z0-9]+(?==y)' $merged_config | head -1 || true)
         if [ -z "$DEVICE_TARGET" ]; then
-          DEVICE_TARGET=$(grep '^CONFIG_TARGET_BOARD=' $merged_config | head -1 | awk -F '"' '{print $2}' || true)
+          DEVICE_TARGET=$(grep -h '^CONFIG_TARGET_BOARD=' $merged_config | head -1 | awk -F '"' '{print $2}' || true)
         fi
         echo "DEVICE_TARGET=${DEVICE_TARGET:-unknown}" >> $GITHUB_ENV
 
         # 提取 subtarget 子目标（如 ipq60xx）
         DEVICE_SUBTARGET=""
         if [ -n "$DEVICE_TARGET" ] && [ "$DEVICE_TARGET" != "unknown" ]; then
-          DEVICE_SUBTARGET=$(grep -oP "^CONFIG_TARGET_${DEVICE_TARGET}_\K(?!DEVICE)[a-z0-9_]+(?==y)" $merged_config | head -1 || true)
+          DEVICE_SUBTARGET=$(grep -h -oP "^CONFIG_TARGET_${DEVICE_TARGET}_\K(?!DEVICE)[a-z0-9_]+(?==y)" $merged_config | head -1 || true)
         fi
         if [ -z "$DEVICE_SUBTARGET" ]; then
-          DEVICE_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' $merged_config | head -1 | awk -F '"' '{print $2}' || true)
+          DEVICE_SUBTARGET=$(grep -h '^CONFIG_TARGET_SUBTARGET=' $merged_config | head -1 | awk -F '"' '{print $2}' || true)
         fi
         echo "DEVICE_SUBTARGET=${DEVICE_SUBTARGET:-unknown}" >> $GITHUB_ENV
 
