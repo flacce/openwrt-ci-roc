@@ -84,9 +84,9 @@ function git_sparse_clone() {
   rm -rf "$repo_dir"
 }
 
-# 下载 Sing-Box 官方预编译预览版（Pre-release）核心及规则库（纯 Sing-Box 方案，剔除 Xray）
+# 下载 Sing-Box 官方预编译预览版（Pre-release）核心（纯 Sing-Box 方案，剔除 Xray 及冗余 dat）
 function download_prebuilt_cores() {
-  mkdir -p files/usr/bin files/usr/share/v2ray files/etc/uci-defaults
+  mkdir -p files/usr/bin files/etc/uci-defaults
 
   # 优先获取官方最新预览版/发布版标签，API受限时保底使用最新 1.15.0-alpha.13
   local sb_ver="v1.15.0-alpha.13"
@@ -99,7 +99,7 @@ function download_prebuilt_cores() {
   if [[ "$latest_release" =~ ^v[0-9] ]]; then
     sb_ver="$latest_release"
   fi
-  echo "==> Downloading prebuilt Sing-Box preview core (${sb_ver}) and geodata..."
+  echo "==> Downloading prebuilt Sing-Box preview core (${sb_ver})..."
   local sb_url="https://github.com/SagerNet/sing-box/releases/download/${sb_ver}/sing-box-${sb_ver#v}-linux-arm64-musl.tar.gz"
 
   local tmp_dir
@@ -110,6 +110,7 @@ function download_prebuilt_cores() {
     chmod 0755 files/usr/bin/sing-box
     echo "==> sing-box (${sb_ver}) deployed."
   fi
+  test -f files/usr/bin/sing-box || { echo "ERROR: sing-box binary missing after unpack!" >&2; exit 1; }
 
   # 确保目标系统存在 sing-box 运行账号与用户组（供 procd/ujail 权限沙箱）
   cat << 'EOF' > files/etc/uci-defaults/99-sing-box-user
@@ -119,18 +120,36 @@ exit 0
 EOF
   chmod +x files/etc/uci-defaults/99-sing-box-user
 
-  # 下载最新 Loyalsoldier 规则库供转换或通用引用
-  retry curl -fsSL -o files/usr/share/v2ray/geoip.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat" || true
-  retry curl -fsSL -o files/usr/share/v2ray/geosite.dat "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat" || true
-
-  # 确保清理残留软链接
-  rm -rf files/usr/share/xray
+  # HomeProxy 原生使用 /etc/homeproxy/resources/*.srs，彻底清理历史遗留冗余规则与软链接
+  rm -rf files/usr/share/v2ray files/usr/share/xray
 
   rm -rf "${tmp_dir}"
 }
 
+# 下载 MetaCubeX (Mihomo) 官方高精度 Sing-Box 规则集并预置到固件中
+function download_metacubex_rulesets() {
+  mkdir -p files/etc/homeproxy/resources
+  echo "==> Downloading MetaCubeX high-precision rulesets (geoip-cn & geosite-cn)..."
+  local geoip_url="https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geoip/cn.srs"
+  local geosite_url="https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geosite/cn.srs"
+  local fallback_geoip="https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs"
+  local fallback_geosite="https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs"
+
+  retry curl -fsSL --connect-timeout 15 -m 60 -o files/etc/homeproxy/resources/geoip_cn.srs "$geoip_url" || \
+    retry curl -fsSL --connect-timeout 15 -m 60 -o files/etc/homeproxy/resources/geoip_cn.srs "$fallback_geoip" || true
+  retry curl -fsSL --connect-timeout 15 -m 60 -o files/etc/homeproxy/resources/geosite_cn.srs "$geosite_url" || \
+    retry curl -fsSL --connect-timeout 15 -m 60 -o files/etc/homeproxy/resources/geosite_cn.srs "$fallback_geosite" || true
+
+  if [ -s files/etc/homeproxy/resources/geoip_cn.srs ] && [ -s files/etc/homeproxy/resources/geosite_cn.srs ]; then
+    date +"%Y%m%d%H%M" > files/etc/homeproxy/resources/geoip_cn.ver
+    date +"%Y%m%d%H%M" > files/etc/homeproxy/resources/geosite_cn.ver
+    echo "==> MetaCubeX rulesets successfully deployed to /etc/homeproxy/resources/."
+  fi
+}
+
 # 并行拉取第三方软件包及核心组件以提升效率
 ( download_prebuilt_cores ) &
+( download_metacubex_rulesets ) &
 ( clone_into https://github.com/EasyTier/luci-app-easytier package/luci-app-easytier ) &
 ( clone_into https://github.com/VIKINGYFY/packages package/viking-packages main && mv -f package/viking-packages/luci-app-homeproxy package/ && rm -rf package/viking-packages ) &
 ( clone_into https://github.com/eamonxg/luci-theme-aurora package/luci-theme-aurora ) &
@@ -166,6 +185,46 @@ for p in hp.rglob("*.js"):
     s = s.replace("hysteria_obfs_type:params.get('\''obfs'\''),", "hysteria_obfs_type:(params.get('\''obfs'\'')&&params.get('\''obfs'\'')!=='\''none'\'')?params.get('\''obfs'\''):null,")
     p.write_text(s, encoding="utf-8")
 '
+
+  # 将 HomeProxy 在线规则更新源全面替换为 MetaCubeX (Mihomo) 官方规则集
+  python3 - << 'EOF'
+from pathlib import Path
+up_file = Path("package/luci-app-homeproxy/root/etc/homeproxy/scripts/update_resources.sh")
+if up_file.is_file():
+    txt = up_file.read_text(encoding="utf-8")
+    txt = txt.replace(
+        'GEOIP_SOURCE="${GEOIP_SOURCE:-https://cdn.jsdelivr.net/gh/SagerNet/sing-geoip@rule-set/geoip-cn.srs}"',
+        'GEOIP_SOURCE="${GEOIP_SOURCE:-https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geoip/cn.srs}"'
+    )
+    txt = txt.replace(
+        'GEOIP_VERSION_URL="${GEOIP_VERSION_URL:-https://github.com/SagerNet/sing-geoip/releases/latest}"',
+        'GEOIP_VERSION_URL="${GEOIP_VERSION_URL:-https://github.com/MetaCubeX/meta-rules-dat/commits/sing.atom}"'
+    )
+    txt = txt.replace(
+        'GEOSITE_SOURCE="${GEOSITE_SOURCE:-https://cdn.jsdelivr.net/gh/SagerNet/sing-geosite@rule-set-unstable/geosite-cn.srs}"',
+        'GEOSITE_SOURCE="${GEOSITE_SOURCE:-https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@sing/geo/geosite/cn.srs}"'
+    )
+    txt = txt.replace(
+        'GEOSITE_VERSION_URL="${GEOSITE_VERSION_URL:-https://github.com/SagerNet/sing-geosite/releases/latest}"',
+        'GEOSITE_VERSION_URL="${GEOSITE_VERSION_URL:-https://github.com/MetaCubeX/meta-rules-dat/commits/sing.atom}"'
+    )
+    atom_hook = """fetch_release_version() {
+\\tlocal effective_url version
+\\tif echo "$1" | grep -q '\\\\.atom$'; then
+\\t\\tlocal feed
+\\t\\tfeed="$(run_curl -fsSL --compressed --retry 3 --retry-all-errors \\\\
+\\t\\t\\t--retry-delay 1 --connect-timeout 10 --max-time 30 \\\\
+\\t\\t\\t-A "$USER_AGENT" "$1")" || return 1
+\\t\\tversion="$(printf '%s\\\\n' "$feed" | awk -F '[<>]' '/<updated>/ { version = $3; gsub(/[-:TZ]/, "", version); print version; exit }')"
+\\t\\tcase "$version" in
+\\t\\t??????????????) printf '%s\\\\n' "$version"; return 0 ;;
+\\t\\t*) return 1 ;;
+\\t\\tesac
+\\tfi"""
+    txt = txt.replace("fetch_release_version() {\\n\\tlocal effective_url version", atom_hook, 1)
+    up_file.write_text(txt, encoding="utf-8")
+    print("==> Patched HomeProxy update_resources.sh to use MetaCubeX rulesets")
+EOF
 
   # 为 HomeProxy 分流控制新增“DNS 代理列表”与“DNS 直连列表”支持
   python3 - << 'EOF'
@@ -261,9 +320,31 @@ if hp_file.is_file():
     print("==> Patched homeproxy.uc for wildcard domain support")
 EOF
 
-  # 预创建分流列表空文件
+  # 预创建分流列表并预置 Google Play 核心 CDN 规则，彻底根治下载被误划入国内直连卡死
   mkdir -p files/etc/homeproxy/diversion
-  touch files/etc/homeproxy/diversion/dns_proxy.txt files/etc/homeproxy/diversion/dns_direct.txt
+  cat << 'EOF' > files/etc/homeproxy/diversion/dns_proxy.txt
+play.google.com
+*.gvt1.com
+*.gvt2.com
+*.gvt3.com
+*.googleusercontent.com
+*.xn--ngstr-lra8j.com
+*.googleapis.com
+*.1e100.net
+EOF
+
+  cat << 'EOF' > files/etc/homeproxy/diversion/proxy.txt
+play.google.com
+*.gvt1.com
+*.gvt2.com
+*.gvt3.com
+*.googleusercontent.com
+*.xn--ngstr-lra8j.com
+*.googleapis.com
+*.1e100.net
+EOF
+
+  touch files/etc/homeproxy/diversion/dns_direct.txt files/etc/homeproxy/diversion/direct.txt
 fi
 
 chmod +x package/luci-app-homeproxy/root/etc/init.d/homeproxy package/luci-app-homeproxy/root/etc/homeproxy/scripts/*.sh package/luci-app-homeproxy/root/usr/libexec/* 2>/dev/null || true

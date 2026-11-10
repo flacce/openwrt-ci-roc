@@ -7,13 +7,14 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   keepalive:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout(检出代码)
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v4
 
       - name: Keepalive Commit(防休眠活跃提交)
         run: |
@@ -21,3 +22,10 @@ jobs:
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git commit --allow-empty -m "chore(ci): keepalive trigger [skip ci]"
           git push
+
+      - name: Keep Workflows Active(刷新激活工作流)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow enable JDCloud-ImmortalWrt.yml || true
+          gh workflow enable IPQ60XX-LibWrt.yml || true
